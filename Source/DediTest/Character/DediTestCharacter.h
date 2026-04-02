@@ -14,6 +14,7 @@ class UInputAction;
 struct FInputActionValue;
 class UAbilitySystemComponent;
 class UDediTestAttributeSet;
+class USkeletalMeshComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -33,7 +34,11 @@ class ADediTestCharacter : public ACharacter, public IAbilitySystemInterface
 	/** Follow camera */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
-	
+
+	/** Weapon Mesh */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	USkeletalMeshComponent* WeaponMesh;
+
 protected:
 
 	/** Jump Input Action */
@@ -56,7 +61,7 @@ protected:
 	UInputAction* FireAction;
 
 	UPROPERTY(EditAnywhere, Category="Combat")
-	TSubclassOf<class AFireballProjectile> ProjectileClass;
+	TSubclassOf<class ADediProjectile> ProjectileClass;
 
 	// GAS Components
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="GAS")
@@ -70,6 +75,15 @@ protected:
 	// 서버에서 실행될 발사 함수 (RPC)
 	UFUNCTION(Server, Reliable)
 	void ServerFire(FVector SpawnLocation, FRotator SpawnRotation);
+	
+	// 에임 피치
+	UPROPERTY(BlueprintReadOnly, Category = "Animation")
+	float AimPitch;
+	
+	void UpdateAimOffset(float DeltaTime);
+	
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
+	bool bIsAiming = false;
 
 public:
 

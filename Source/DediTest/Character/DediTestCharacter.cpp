@@ -15,7 +15,8 @@
 #include "SNegativeActionButton.h"
 #include "AbilitySystemComponent.h"
 #include "DediTestAttributeSet.h"
-
+#include "Components/SkeletalMeshComponent.h"
+#include "DediProjectile.h"
 
 ADediTestCharacter::ADediTestCharacter()
 {
@@ -50,6 +51,11 @@ ADediTestCharacter::ADediTestCharacter()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
+
+	// Create weapon mesh (attached to character mesh's WeaponSocket)
+	WeaponMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMesh"));
+	WeaponMesh->SetupAttachment(GetMesh(), TEXT("WeaponSocket"));
+	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	// AbilitySystemComponent 생성
 	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
@@ -148,17 +154,38 @@ void ADediTestCharacter::DoJumpEnd()
 	StopJumping();
 }
 
-void ADediTestCharacter::Die()
+
+
+void ADediTestCharacter::UpdateAimOffset(float DeltaTime)
 {
-	Destroy();
+	// 컨트롤러의 회전값과 캐릭터의 회전값 비교
+	FRotator ControlRotation = GetControlRotation();
+	FRotator ActorRotation = GetActorRotation();
+
+	// 두 회전값의 차이(Delta)를 정규화하여 저장
+	FRotator Delta = (ControlRotation - ActorRotation).GetNormalized();
+
+	// Pitch 값 보간
+	AimPitch = FMath::FInterpTo(AimPitch, Delta.Pitch, DeltaTime, 15.0f);
 }
 
 void ADediTestCharacter::Fire()
 {
-	FVector SpawnLocation = GetCapsuleComponent()->GetComponentLocation() + GetCapsuleComponent()->GetForwardVector() * 100.0f;
-	FRotator SpawnRotator = GetCapsuleComponent()->GetComponentRotation();
-	//FVector SpawnLocation = FollowCamera->GetComponentLocation() + FollowCamera->GetForwardVector() * 100.0f;
-	//FRotator SpawnRotator = FollowCamera->GetComponentRotation();
+	// 무기 메시의 MuzzleSocket에서 발사 (소켓이 있으면)
+	FVector SpawnLocation;
+	FRotator SpawnRotator;
+
+	if (WeaponMesh && WeaponMesh->DoesSocketExist(TEXT("MuzzleSocket")))
+	{
+		SpawnLocation = WeaponMesh->GetSocketLocation(TEXT("MuzzleSocket"));
+		SpawnRotator = WeaponMesh->GetSocketRotation(TEXT("MuzzleSocket"));
+	}
+	else
+	{
+		// 소켓이 없으면 캡슐 앞쪽에서 발사
+		SpawnLocation = GetCapsuleComponent()->GetComponentLocation() + GetCapsuleComponent()->GetForwardVector() * 100.0f;
+		SpawnRotator = GetCapsuleComponent()->GetComponentRotation();
+	}
 	
 	if (HasAuthority())	// 서버라면
 	{
@@ -168,7 +195,7 @@ void ADediTestCharacter::Fire()
 			SpawnParams.Owner = this;
 			SpawnParams.Instigator = GetInstigator();
 			
-			GetWorld()->SpawnActor<AFireballProjectile>(ProjectileClass, SpawnLocation, SpawnRotator, SpawnParams);
+			GetWorld()->SpawnActor<ADediProjectile>(ProjectileClass, SpawnLocation, SpawnRotator, SpawnParams);
 			
 			UE_LOG(LogTemp, Warning, TEXT("Fire - Server"));
 		}
@@ -191,6 +218,11 @@ void ADediTestCharacter::ServerFire_Implementation(FVector SpawnLocation, FRotat
 
 		GetWorld()->SpawnActor<AFireballProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, SpawnParams);
 	}
+}
+
+void ADediTestCharacter::Die()
+{
+	Destroy();
 }
 
 UAbilitySystemComponent* ADediTestCharacter::GetAbilitySystemComponent() const

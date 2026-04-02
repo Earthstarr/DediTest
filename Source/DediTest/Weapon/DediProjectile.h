@@ -48,6 +48,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Effects")
 	class USoundAttenuation* HitAttenuation;
+	
+	// 트레일 이펙트
+	UPROPERTY(EditDefaultsOnly, Category="Effects")
+	class UNiagaraSystem* TrailEffect;
 
 public:
 	// 충돌 콜백

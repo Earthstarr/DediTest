@@ -55,6 +55,15 @@ void ADediProjectile::BeginPlay()
 	{
 		CollisionComp->IgnoreActorWhenMoving(GetOwner(), true);
 	}
+	
+	if (TrailEffect)
+	{
+		UNiagaraFunctionLibrary::SpawnSystemAttached(
+			TrailEffect, GetRootComponent(), NAME_None,
+			FVector::ZeroVector, FRotator::ZeroRotator,
+			EAttachLocation::SnapToTarget, true
+		);
+	}
 }
 
 void ADediProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
