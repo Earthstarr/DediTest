@@ -60,6 +60,9 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* FireAction;
 
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* AimAction;
+
 	UPROPERTY(EditAnywhere, Category="Combat")
 	TSubclassOf<class ADediProjectile> ProjectileClass;
 
@@ -81,9 +84,12 @@ protected:
 	float AimPitch;
 	
 	void UpdateAimOffset(float DeltaTime);
-	
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
 	bool bIsAiming = false;
+
+	void OnAimStarted();
+	void OnAimCompleted();
 
 public:
 

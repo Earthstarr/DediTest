@@ -73,7 +73,7 @@ void ADediTestCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 {
 	// Set up action bindings
 	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(PlayerInputComponent)) {
-		
+
 		// Jumping
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Started, this, &ACharacter::Jump);
 		EnhancedInputComponent->BindAction(JumpAction, ETriggerEvent::Completed, this, &ACharacter::StopJumping);
@@ -84,9 +84,16 @@ void ADediTestCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 
 		// Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ADediTestCharacter::Look);
-		
+
 		// Fire
 		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ADediTestCharacter::Fire);
+
+		// Aim
+		if (AimAction)
+		{
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &ADediTestCharacter::OnAimStarted);
+			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &ADediTestCharacter::OnAimCompleted);
+		}
 	}
 	else
 	{
@@ -167,6 +174,24 @@ void ADediTestCharacter::UpdateAimOffset(float DeltaTime)
 
 	// Pitch 값 보간
 	AimPitch = FMath::FInterpTo(AimPitch, Delta.Pitch, DeltaTime, 15.0f);
+}
+
+void ADediTestCharacter::OnAimStarted()
+{
+	bIsAiming = true;
+
+	// 조준 시 캐릭터 회전을 컨트롤러 방향으로 고정
+	bUseControllerRotationYaw = true;
+	GetCharacterMovement()->bOrientRotationToMovement = false;
+}
+
+void ADediTestCharacter::OnAimCompleted()
+{
+	bIsAiming = false;
+
+	// 조준 해제 시 원래대로 복원
+	bUseControllerRotationYaw = false;
+	GetCharacterMovement()->bOrientRotationToMovement = true;
 }
 
 void ADediTestCharacter::Fire()
