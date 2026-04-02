@@ -13,6 +13,8 @@
 #include "DediTest.h"
 #include "FireballProjectile.h"
 #include "SNegativeActionButton.h"
+#include "AbilitySystemComponent.h"
+#include "DediTestAttributeSet.h"
 
 
 ADediTestCharacter::ADediTestCharacter()
@@ -49,7 +51,15 @@ ADediTestCharacter::ADediTestCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
-	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character) 
+	// AbilitySystemComponent 생성
+	AbilitySystemComponent = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AbilitySystemComponent->SetIsReplicated(true);
+	AbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+
+	// AttributeSet 생성
+	AttributeSet = CreateDefaultSubobject<UDediTestAttributeSet>(TEXT("AttributeSet"));
+
+	// Note: The skeletal mesh and anim blueprint references on the Mesh component (inherited from Character)
 	// are set in the derived blueprint asset named ThirdPersonCharacter (to avoid direct content references in C++)
 }
 
@@ -173,7 +183,12 @@ void ADediTestCharacter::ServerFire_Implementation(FVector SpawnLocation, FRotat
 		FActorSpawnParameters SpawnParams;
 		SpawnParams.Owner = this;
 		SpawnParams.Instigator = GetInstigator();
-			
+
 		GetWorld()->SpawnActor<AFireballProjectile>(ProjectileClass, SpawnLocation, SpawnRotation, SpawnParams);
 	}
+}
+
+UAbilitySystemComponent* ADediTestCharacter::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComponent;
 }

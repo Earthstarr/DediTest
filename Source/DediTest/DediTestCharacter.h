@@ -5,12 +5,15 @@
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
 #include "Logging/LogMacros.h"
+#include "AbilitySystemInterface.h"
 #include "DediTestCharacter.generated.h"
 
 class USpringArmComponent;
 class UCameraComponent;
 class UInputAction;
 struct FInputActionValue;
+class UAbilitySystemComponent;
+class UDediTestAttributeSet;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
 
@@ -19,7 +22,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
  *  Implements a controllable orbiting camera
  */
 UCLASS(abstract)
-class ADediTestCharacter : public ACharacter
+class ADediTestCharacter : public ACharacter, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
@@ -48,12 +51,19 @@ protected:
 	/** Mouse Look Input Action */
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* MouseLookAction;
-	
+
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* FireAction;
-	
+
 	UPROPERTY(EditAnywhere, Category="Combat")
 	TSubclassOf<class AFireballProjectile> ProjectileClass;
+
+	// GAS Components
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="GAS")
+	UAbilitySystemComponent* AbilitySystemComponent;
+
+	UPROPERTY()
+	UDediTestAttributeSet* AttributeSet;
 	
 	void Fire();
 	
@@ -104,5 +114,11 @@ public:
 
 	/** Returns FollowCamera subobject **/
 	FORCEINLINE class UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	// IAbilitySystemInterface
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	// AttributeSet Getter
+	UDediTestAttributeSet* GetAttributeSet() const { return AttributeSet; }
 };
 
