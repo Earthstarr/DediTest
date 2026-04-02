@@ -51,8 +51,9 @@ void UDediTestAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 		{
 			if (ADediTestCharacter* OwnerChar = Cast<ADediTestCharacter>(Data.Target.GetAvatarActor()))
 			{
-				// TODO: Die() 함수 호출
-				UE_LOG(LogTemp, Warning, TEXT("Player Died!"));
+				// TODO: Die() 함수 호출				
+				//UE_LOG(LogTemp, Warning, TEXT("Player Died!"));
+				OwnerChar->Die();				
 			}
 		}
 	}

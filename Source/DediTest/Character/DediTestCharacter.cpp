@@ -148,6 +148,11 @@ void ADediTestCharacter::DoJumpEnd()
 	StopJumping();
 }
 
+void ADediTestCharacter::Die()
+{
+	Destroy();
+}
+
 void ADediTestCharacter::Fire()
 {
 	FVector SpawnLocation = GetCapsuleComponent()->GetComponentLocation() + GetCapsuleComponent()->GetForwardVector() * 100.0f;

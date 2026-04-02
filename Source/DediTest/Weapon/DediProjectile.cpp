@@ -75,7 +75,7 @@ void ADediProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UP
 		UAbilitySystemComponent* TargetASC = HitCharacter->GetAbilitySystemComponent();
 		if (TargetASC)
 		{
-			// 직접 Attribute 감소
+			// Attribute 감소
 			const UDediTestAttributeSet* AttributeSet = TargetASC->GetSet<UDediTestAttributeSet>();
 			if (AttributeSet)
 			{

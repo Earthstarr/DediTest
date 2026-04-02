@@ -36,7 +36,7 @@ protected:
 
 	// 데미지
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Combat")
-	float DamageAmount = 20.0f;
+	float DamageAmount = 10.0f;
 
 	// 이펙트
 	UPROPERTY(EditDefaultsOnly, Category="Effects")

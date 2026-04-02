@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmd /c \"move DediTestCharacter.h Character\\\\ & move DediTestCharacter.cpp Character\\\\ & move DediTestAttributeSet.h Character\\\\ & move DediTestAttributeSet.cpp Character\"\")"
+    ]
+  }
+}

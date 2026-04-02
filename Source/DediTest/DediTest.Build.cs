@@ -18,13 +18,20 @@ public class DediTest : ModuleRules
 			"StateTreeModule",
 			"GameplayStateTreeModule",
 			"UMG",
-			"Slate"
+			"Slate",
+			"GameplayAbilities",
+			"GameplayTags",
+			"GameplayTasks",
+			"Niagara"
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
 
 		PublicIncludePaths.AddRange(new string[] {
 			"DediTest",
+			"DediTest/Character",
+			"DediTest/GameFramework",
+			"DediTest/Weapon",
 			"DediTest/Variant_Platforming",
 			"DediTest/Variant_Platforming/Animation",
 			"DediTest/Variant_Combat",
