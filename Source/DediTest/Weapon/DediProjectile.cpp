@@ -10,6 +10,8 @@
 #include "DediTestCharacter.h"
 #include "AbilitySystemComponent.h"
 #include "DediTestAttributeSet.h"
+#include "DediTest/FPS/FPSCharacter.h"
+#include "DediTest/FPS/PlayerAttributeSet.h"
 
 ADediProjectile::ADediProjectile()
 {
@@ -96,6 +98,35 @@ void ADediProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UP
 
 				UE_LOG(LogTemp, Warning, TEXT("Projectile Hit! Damage: %f, Health: %f -> %f"),
 					DamageAmount, CurrentHealth, NewHealth);
+			}
+		}
+	}
+	// FPSCharacter에 맞았을 때 데미지 처리
+	else if (AFPSCharacter* HitFPSCharacter = Cast<AFPSCharacter>(OtherActor))
+	{
+		// GAS를 통한 데미지 처리
+		UAbilitySystemComponent* TargetASC = HitFPSCharacter->GetAbilitySystemComponent();
+		if (TargetASC)
+		{
+			// Attribute 감소
+			const UPlayerAttributeSet* AttributeSet = TargetASC->GetSet<UPlayerAttributeSet>();
+			if (AttributeSet)
+			{
+				float CurrentHealth = AttributeSet->GetHealth();
+				float NewHealth = FMath::Max(0.0f, CurrentHealth - DamageAmount);
+
+				// Health 설정
+				TargetASC->SetNumericAttributeBase(UPlayerAttributeSet::GetHealthAttribute(), NewHealth);
+
+				UE_LOG(LogTemp, Warning, TEXT("Projectile Hit FPSCharacter! Damage: %f, Health: %f -> %f"),
+					DamageAmount, CurrentHealth, NewHealth);
+
+				// 발사한 캐릭터의 OnHitEnemy 델리게이트 호출
+				AFPSCharacter* Shooter = Cast<AFPSCharacter>(GetOwner());
+				if (Shooter)
+				{
+					Shooter->OnHitEnemy.Broadcast(false);
+				}
 			}
 		}
 	}

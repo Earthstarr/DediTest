@@ -33,12 +33,24 @@ public:
 	FGameplayAttributeData MaxHealth;
 	ATTRIBUTE_ACCESSORS(UDediTestAttributeSet, MaxHealth)
 
+	// Stamina
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Attributes", ReplicatedUsing=OnRep_Stamina)
+	FGameplayAttributeData Stamina;
+	ATTRIBUTE_ACCESSORS(UDediTestAttributeSet, Stamina)
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category="Attributes")
+	FGameplayAttributeData MaxStamina;
+	ATTRIBUTE_ACCESSORS(UDediTestAttributeSet, MaxStamina)
+
 	// Replication
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	// OnRep
 	UFUNCTION()
 	virtual void OnRep_Health(const FGameplayAttributeData& OldHealth);
+
+	UFUNCTION()
+	virtual void OnRep_Stamina(const FGameplayAttributeData& OldStamina);
 
 	// Clamp
 	virtual void PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue) override;

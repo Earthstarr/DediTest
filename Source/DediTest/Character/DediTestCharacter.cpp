@@ -36,7 +36,7 @@ ADediTestCharacter::ADediTestCharacter()
 	// instead of recompiling to adjust them
 	GetCharacterMovement()->JumpZVelocity = 500.f;
 	GetCharacterMovement()->AirControl = 0.35f;
-	GetCharacterMovement()->MaxWalkSpeed = 500.f;
+	GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
 	GetCharacterMovement()->MinAnalogWalkSpeed = 20.f;
 	GetCharacterMovement()->BrakingDecelerationWalking = 2000.f;
 	GetCharacterMovement()->BrakingDecelerationFalling = 1500.0f;
@@ -52,9 +52,18 @@ ADediTestCharacter::ADediTestCharacter()
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;
 
-	// Create weapon mesh (attached to character mesh's WeaponSocket)
+	// Mesh setup for weapon animation retargeting
+	GetMesh()->SetRelativeRotation(FRotator(0.f, -90.f, 0.f));
+	GetMesh()->SetRelativeLocation(FVector(0.f, 0.f, -96.f));
+
+	// Create RetargetMesh attached to main mesh
+	RetargetMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("RetargetMesh"));
+	RetargetMesh->SetupAttachment(GetMesh());
+	RetargetMesh->SetCollisionResponseToChannel(ECC_Pawn, ECR_Ignore);
+
+	// Create weapon mesh (attached to RetargetMesh's WeaponSocket)
 	WeaponMesh = CreateDefaultSubobject<USkeletalMeshComponent>(TEXT("WeaponMesh"));
-	WeaponMesh->SetupAttachment(GetMesh(), TEXT("WeaponSocket"));
+	WeaponMesh->SetupAttachment(RetargetMesh, TEXT("WeaponSocket"));
 	WeaponMesh->SetCollisionEnabled(ECollisionEnabled::NoCollision);
 
 	// AbilitySystemComponent 생성
@@ -86,13 +95,23 @@ void ADediTestCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &ADediTestCharacter::Look);
 
 		// Fire
-		EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ADediTestCharacter::Fire);
+		if (FireAction)
+		{
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Started, this, &ADediTestCharacter::OnFireStarted);
+			EnhancedInputComponent->BindAction(FireAction, ETriggerEvent::Completed, this, &ADediTestCharacter::OnFireCompleted);
+		}
 
 		// Aim
 		if (AimAction)
 		{
 			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Triggered, this, &ADediTestCharacter::OnAimStarted);
 			EnhancedInputComponent->BindAction(AimAction, ETriggerEvent::Completed, this, &ADediTestCharacter::OnAimCompleted);
+		}
+
+		// Reload
+		if (ReloadAction)
+		{
+			EnhancedInputComponent->BindAction(ReloadAction, ETriggerEvent::Started, this, &ADediTestCharacter::Reload);
 		}
 	}
 	else
@@ -161,7 +180,11 @@ void ADediTestCharacter::DoJumpEnd()
 	StopJumping();
 }
 
-
+void ADediTestCharacter::Tick(float DeltaTime)
+{
+	Super::Tick(DeltaTime);
+	UpdateAimOffset(DeltaTime);
+}
 
 void ADediTestCharacter::UpdateAimOffset(float DeltaTime)
 {
@@ -176,7 +199,7 @@ void ADediTestCharacter::UpdateAimOffset(float DeltaTime)
 	AimPitch = FMath::FInterpTo(AimPitch, Delta.Pitch, DeltaTime, 15.0f);
 }
 
-void ADediTestCharacter::OnAimStarted()
+void ADediTestCharacter::OnAimStarted_Implementation()
 {
 	bIsAiming = true;
 
@@ -185,7 +208,7 @@ void ADediTestCharacter::OnAimStarted()
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 }
 
-void ADediTestCharacter::OnAimCompleted()
+void ADediTestCharacter::OnAimCompleted_Implementation()
 {
 	bIsAiming = false;
 
@@ -194,8 +217,84 @@ void ADediTestCharacter::OnAimCompleted()
 	GetCharacterMovement()->bOrientRotationToMovement = true;
 }
 
+void ADediTestCharacter::OnFireStarted()
+{
+	bFireButtonDown = true;
+
+	if (!bIsAiming) return;
+
+	StartFiring();
+}
+
+void ADediTestCharacter::OnFireCompleted()
+{
+	bFireButtonDown = false;
+	StopFiring();
+}
+
+void ADediTestCharacter::StartFiring()
+{
+	// 첫 발 즉시 발사
+	Fire();
+
+	// FireRate에 따른 반복 타이머 설정
+	float TimeBetweenShots = 1.0f / FireRate;
+	GetWorldTimerManager().SetTimer(TimerHandle_AutomaticFire, this, &ADediTestCharacter::Fire, TimeBetweenShots, true);
+}
+
+void ADediTestCharacter::StopFiring()
+{
+	GetWorldTimerManager().ClearTimer(TimerHandle_AutomaticFire);
+}
+
+void ADediTestCharacter::Reload()
+{
+	if (CurrentAmmo >= MaxAmmoInMag || CurrentMagCount <= 0 || bIsReloading) return;
+
+	bIsReloading = true;
+
+	// 이동 속도를 재장전 속도로 변경
+	GetCharacterMovement()->MaxWalkSpeed = ReloadWalkSpeed;
+
+	// TODO: 재장전 애니메이션 몽타주 재생
+	// TODO: GAS Reload Ability 호출 (나중에 추가)
+}
+
+void ADediTestCharacter::FinishReload()
+{
+	bIsReloading = false;
+
+	if (CurrentMagCount > 0)
+	{
+		CurrentMagCount--;
+		CurrentAmmo = MaxAmmoInMag;
+	}
+
+	// 이동 속도 복원
+	if (bIsAiming)
+	{
+		GetCharacterMovement()->MaxWalkSpeed = AimWalkSpeed;
+	}
+	else
+	{
+		GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+	}
+
+	// TODO: UI 업데이트 델리게이트 호출
+}
+
 void ADediTestCharacter::Fire()
 {
+	// 탄약 체크
+	if (CurrentAmmo <= 0 || bIsReloading)
+	{
+		StopFiring();
+		return;
+	}
+
+	// 탄약 소모
+	CurrentAmmo--;
+
 	// 무기 메시의 MuzzleSocket에서 발사 (소켓이 있으면)
 	FVector SpawnLocation;
 	FRotator SpawnRotator;

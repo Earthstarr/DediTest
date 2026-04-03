@@ -10,6 +10,8 @@ UDediTestAttributeSet::UDediTestAttributeSet()
 {
 	InitHealth(100.0f);
 	InitMaxHealth(100.0f);
+	InitStamina(100.0f);
+	InitMaxStamina(100.0f);
 }
 
 void UDediTestAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -18,6 +20,8 @@ void UDediTestAttributeSet::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>
 
 	DOREPLIFETIME(UDediTestAttributeSet, Health);
 	DOREPLIFETIME(UDediTestAttributeSet, MaxHealth);
+	DOREPLIFETIME(UDediTestAttributeSet, Stamina);
+	DOREPLIFETIME(UDediTestAttributeSet, MaxStamina);
 }
 
 void UDediTestAttributeSet::OnRep_Health(const FGameplayAttributeData& OldHealth)
@@ -28,6 +32,11 @@ void UDediTestAttributeSet::OnRep_Health(const FGameplayAttributeData& OldHealth
 	UE_LOG(LogTemp, Warning, TEXT("Health changed: %f -> %f"), OldHealth.GetCurrentValue(), Health.GetCurrentValue());
 }
 
+void UDediTestAttributeSet::OnRep_Stamina(const FGameplayAttributeData& OldStamina)
+{
+	GAMEPLAYATTRIBUTE_REPNOTIFY(UDediTestAttributeSet, Stamina, OldStamina);
+}
+
 void UDediTestAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribute, float& NewValue)
 {
 	Super::PreAttributeChange(Attribute, NewValue);
@@ -35,6 +44,10 @@ void UDediTestAttributeSet::PreAttributeChange(const FGameplayAttribute& Attribu
 	if (Attribute == GetHealthAttribute())
 	{
 		NewValue = FMath::Clamp(NewValue, 0.0f, GetMaxHealth());
+	}
+	else if (Attribute == GetStaminaAttribute())
+	{
+		NewValue = FMath::Clamp(NewValue, 0.0f, GetMaxStamina());
 	}
 }
 
@@ -51,10 +64,14 @@ void UDediTestAttributeSet::PostGameplayEffectExecute(const FGameplayEffectModCa
 		{
 			if (ADediTestCharacter* OwnerChar = Cast<ADediTestCharacter>(Data.Target.GetAvatarActor()))
 			{
-				// TODO: Die() 함수 호출				
+				// TODO: Die() 함수 호출
 				//UE_LOG(LogTemp, Warning, TEXT("Player Died!"));
-				OwnerChar->Die();				
+				OwnerChar->Die();
 			}
 		}
+	}
+	else if (Data.EvaluatedData.Attribute == GetStaminaAttribute())
+	{
+		SetStamina(FMath::Clamp(GetStamina(), 0.0f, GetMaxStamina()));
 	}
 }

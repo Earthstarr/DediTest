@@ -22,7 +22,7 @@ DECLARE_LOG_CATEGORY_EXTERN(LogTemplateCharacter, Log, All);
  *  A simple player-controllable third person character
  *  Implements a controllable orbiting camera
  */
-UCLASS(abstract)
+UCLASS(Blueprintable)
 class ADediTestCharacter : public ACharacter, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
@@ -35,8 +35,12 @@ class ADediTestCharacter : public ACharacter, public IAbilitySystemInterface
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
 	UCameraComponent* FollowCamera;
 
+	/** Retarget Mesh for weapon animation */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Mesh", meta = (AllowPrivateAccess = "true"))
+	USkeletalMeshComponent* RetargetMesh;
+
 	/** Weapon Mesh */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="Components", meta = (AllowPrivateAccess = "true"))
+	UPROPERTY(BlueprintReadWrite, Category="Mesh", meta = (AllowPrivateAccess = "true"))
 	USkeletalMeshComponent* WeaponMesh;
 
 protected:
@@ -63,8 +67,26 @@ protected:
 	UPROPERTY(EditAnywhere, Category="Input")
 	UInputAction* AimAction;
 
+	UPROPERTY(EditAnywhere, Category="Input")
+	UInputAction* ReloadAction;
+
 	UPROPERTY(EditAnywhere, Category="Combat")
 	TSubclassOf<class ADediProjectile> ProjectileClass;
+
+	// Firing system
+	bool bAimButtonDown = false;
+	bool bFireButtonDown = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float FireRate = 10.0f;
+
+	FTimerHandle TimerHandle_AutomaticFire;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float RecoilPitch = 0.1f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	float RecoilYaw = 0.03f;
 
 	// GAS Components
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category="GAS")
@@ -72,12 +94,48 @@ protected:
 
 	UPROPERTY()
 	UDediTestAttributeSet* AttributeSet;
-	
+
 	void Fire();
-	
+
 	// 서버에서 실행될 발사 함수 (RPC)
 	UFUNCTION(Server, Reliable)
 	void ServerFire(FVector SpawnLocation, FRotator SpawnRotation);
+
+	// Firing functions
+	void OnFireStarted();
+	void OnFireCompleted();
+	void StartFiring();
+	void StopFiring();
+
+	// Reload system
+	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
+	bool bIsReloading = false;
+
+	FTimerHandle TimerHandle_Reload;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	class USoundBase* ReloadSound;
+
+	void Reload();
+
+	UFUNCTION(BlueprintCallable, Category = "Combat")
+	void FinishReload();
+
+public:
+	// Ammo system
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	int32 MaxAmmoInMag = 30;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	int32 CurrentAmmo = 30;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	int32 CurrentMagCount = 8;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+	int32 MaxMagCount = 8;
+
+protected:
 	
 	// 에임 피치
 	UPROPERTY(BlueprintReadOnly, Category = "Animation")
@@ -85,16 +143,36 @@ protected:
 	
 	void UpdateAimOffset(float DeltaTime);
 
+	// Movement Speed
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float NormalWalkSpeed = 300.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float SprintWalkSpeed = 600.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float AimWalkSpeed = 200.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Movement")
+	float ReloadWalkSpeed = 300.0f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
 	bool bIsAiming = false;
 
+	UFUNCTION(BlueprintNativeEvent, Category = "Combat")
 	void OnAimStarted();
+	virtual void OnAimStarted_Implementation();
+
+	UFUNCTION(BlueprintNativeEvent, Category = "Combat")
 	void OnAimCompleted();
+	virtual void OnAimCompleted_Implementation();
 
 public:
 
 	/** Constructor */
-	ADediTestCharacter();	
+	ADediTestCharacter();
+
+	virtual void Tick(float DeltaTime) override;
 
 protected:
 
