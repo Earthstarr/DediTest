@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Unreal/ProjectHD/Source/ProjectHD/Weapon/Stratagem/**)",
+      "Read(//c/Unreal/ProjectHD/Source/ProjectHD/Character/Player/**)",
+      "Read(//c/Unreal/ProjectHD/Source/ProjectHD/Weapon/Projectile/**)",
+      "Read(//c/Unreal/ProjectHD/**)"
+    ]
+  }
+}

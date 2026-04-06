@@ -12,7 +12,7 @@
 #include "InputActionValue.h"
 #include "DediTest.h"
 #include "FireballProjectile.h"
-#include "SNegativeActionButton.h"
+//#include "SNegativeActionButton.h"
 #include "AbilitySystemComponent.h"
 #include "DediTestAttributeSet.h"
 #include "Components/SkeletalMeshComponent.h"

@@ -18,6 +18,7 @@
 #include "GameplayEffect.h"
 #include "Perception/AISense_Hearing.h"
 #include "DediTest/Weapon/DediProjectile.h"
+#include "StratagemBeacon.h"
 
 AFPSCharacter::AFPSCharacter()
 {
@@ -102,16 +103,21 @@ void AFPSCharacter::BeginPlay()
 {
     Super::BeginPlay();
 
+    UE_LOG(LogTemp, Warning, TEXT("FPSCharacter BeginPlay - HasAuthority: %d, IsLocallyControlled: %d, Name: %s"),
+        HasAuthority(), IsLocallyControlled(), *GetName());
+
+    // 초기 이동 속도 설정
+    GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+
+    // 무기별 초기 탄약 설정
+    for (int32 i = 0; i < Weapons.Num() && i < 2; i++)
+    {
+        WeaponAmmo[i] = Weapons[i].MaxAmmoInMag;
+    }
+
     // 기존 캐릭터 메시 숨기기 (RetargetMesh 사용)
     GetMesh()->SetVisibility(false);
 
-    // 입력 모드 초기화
-    if (APlayerController* PC = Cast<APlayerController>(GetController()))
-    {
-        PC->bShowMouseCursor = false;
-        PC->EnableInput(PC);
-        PC->SetInputMode(FInputModeGameOnly());
-    }
 
     if (AbilitySystemComponent)
     {
@@ -132,17 +138,13 @@ void AFPSCharacter::BeginPlay()
 
         // 초기 UI 업데이트 위해 바로 호출
         OnHealthChanged.Broadcast(AttributeSet->GetHealth(), AttributeSet->GetMaxHealth());
-        OnStaminaChanged.Broadcast(AttributeSet->GetStamina(), AttributeSet->GetMaxStamina());
     }
+
+    // 스태미나 초기 UI 업데이트
+    OnStaminaChanged.Broadcast(CurrentStamina, MaxStamina);
 
     if (HasAuthority())
     {
-        // GAS: 달리기 능력
-        if (SprintAbilityClass)
-        {
-            AbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(SprintAbilityClass, 1, static_cast<int32>(EAbilityInputID::Sprint)));
-        }
-
         // GAS: 수류탄 던지기 능력
         if (GrenadeAbilityClass)
         {
@@ -159,29 +161,7 @@ void AFPSCharacter::BeginPlay()
         WeaponMesh->SetSkeletalMesh(DefaultWeaponMesh);
     }
 
-    if (APlayerController* PlayerController = Cast<APlayerController>(GetController()))
-    {
-        if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(PlayerController->GetLocalPlayer()))
-        {
-            Subsystem->AddMappingContext(DefaultMappingContext, 0);
-
-            // 스트라타젬 컨텍스트 추가
-            if (StratagemMappingContext)
-            {
-                Subsystem->AddMappingContext(StratagemMappingContext, 1); // 우선순위 1
-            }
-        }
-
-        // MainHUD 위젯 생성
-        if (MainHUDWidgetClass)
-        {
-            MainHUDWidget = CreateWidget<UUserWidget>(GetWorld(), MainHUDWidgetClass);
-            if (MainHUDWidget)
-            {
-                MainHUDWidget->AddToViewport();
-            }
-        }
-    }
+    InitInputAndCamera();
 
     // 500kg 폭탄
     FStratagemData Bomb;
@@ -338,6 +318,11 @@ void AFPSCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompon
         // 수류탄 던지기
         EnhancedInputComponent->BindAction(GrenadeAction, ETriggerEvent::Started, this, &AFPSCharacter::OnGrenadeStart);
 
+        if (Weapon1Action)
+            EnhancedInputComponent->BindAction(Weapon1Action, ETriggerEvent::Started, this, &AFPSCharacter::OnWeapon1);
+        if (Weapon2Action)
+            EnhancedInputComponent->BindAction(Weapon2Action, ETriggerEvent::Started, this, &AFPSCharacter::OnWeapon2);
+
         // 사격 (FireWeapon 함수 연동)
         if (FireAction)
         {
@@ -412,21 +397,9 @@ void AFPSCharacter::HandleStaminaChanged(const FOnAttributeChangeData& Data)
 {
     float NewStamina = Data.NewValue;
     OnStaminaChanged.Broadcast(NewStamina, AttributeSet->GetMaxStamina());
-
-    // 스태미나가 0 이하로 떨어지면 OnSprintCompleted 호출해 달리기 중지
-    if (NewStamina <= 0.0f)
-    {
-        OnSprintCompleted();
-
-        // GAS 내부적으로 Sprint 입력을 Release 처리해서 어빌리티 정상 종료
-        if (AbilitySystemComponent)
-        {
-            AbilitySystemComponent->AbilityLocalInputReleased(static_cast<int32>(EAbilityInputID::Sprint));
-        }
-    }
 }
 
-// GAS : 달리기
+// 달리기
 void AFPSCharacter::OnSprintStarted()
 {
     bSprintButtonDown = true;
@@ -434,25 +407,20 @@ void AFPSCharacter::OnSprintStarted()
     // 조준 중이거나 사격 중이면 입력만 저장하고 리턴
     if (bIsAiming || bFireButtonDown) return;
 
-    if (AbilitySystemComponent)
+    // 스태미나가 0보다 크다면 달리기 시작
+    if (CurrentStamina > 0.0f)
     {
-        float CurrentStamina = AttributeSet->GetStamina();
+        bIsSprintActive = true;
 
-        // 스태미나가 0보다 크다면, 2초 대기 상태라도 태그 제거
-        if (CurrentStamina > 0.0f)
-        {
-            FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"));
-            AbilitySystemComponent->RemoveLooseGameplayTag(ExhaustedTag);
+        // 회복 타이머 중단
+        GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegen);
+        GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegenTick);
 
-            // 2초 회복 타이머 중단
-            GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegen);
+        // 속도 변경
+        GetCharacterMovement()->MaxWalkSpeed = SprintWalkSpeed;
 
-            // 기존 회복 효과 제거
-            AbilitySystemComponent->RemoveActiveGameplayEffectBySourceEffect(StaminaRegenEffectClass, AbilitySystemComponent);
-
-            // 달리기 시작
-            AbilitySystemComponent->AbilityLocalInputPressed(static_cast<int32>(EAbilityInputID::Sprint));
-        }
+        // 스태미나 감소 타이머 시작 (0.1초마다)
+        GetWorldTimerManager().SetTimer(TimerHandle_StaminaDrain, this, &AFPSCharacter::DrainStamina, 0.1f, true);
     }
 }
 
@@ -461,43 +429,54 @@ void AFPSCharacter::OnSprintCompleted()
     bSprintButtonDown = false;
     bIsSprintActive = false;
 
-    if (AbilitySystemComponent)
+    // 스태미나 감소 타이머 중단
+    GetWorldTimerManager().ClearTimer(TimerHandle_StaminaDrain);
+
+    // 속도 원복
+    if (!bIsAiming)
     {
-        AbilitySystemComponent->AbilityLocalInputReleased(static_cast<int32>(EAbilityInputID::Sprint));
+        GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+    }
 
-        FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"));
-        if (!AbilitySystemComponent->HasMatchingGameplayTag(ExhaustedTag))
-        {
-            AbilitySystemComponent->AddLooseGameplayTag(ExhaustedTag);
-        }
+    // 2초 후 회복 시작
+    GetWorldTimerManager().SetTimer(TimerHandle_StaminaRegen, this, &AFPSCharacter::StartStaminaRegen, 2.0f, false);
+}
 
-        GetWorldTimerManager().SetTimer(TimerHandle_StaminaRegen, this, &AFPSCharacter::StartStaminaRegen, 2.0f, false);
+void AFPSCharacter::DrainStamina()
+{
+    CurrentStamina = FMath::Max(CurrentStamina - 1.0f, 0.0f); // 초당 10
+
+    // UI 업데이트
+    OnStaminaChanged.Broadcast(CurrentStamina, MaxStamina);
+
+    // 스태미나가 0이면 달리기 중지
+    if (CurrentStamina <= 0.0f)
+    {
+        OnSprintCompleted();
     }
 }
 
 void AFPSCharacter::StartStaminaRegen()
 {
-    if (AbilitySystemComponent)
+    // 달리는 중이 아닐 때만 회복
+    if (!bIsSprintActive)
     {
-        // 탈진 태그 제거
-        FGameplayTag ExhaustedTag = FGameplayTag::RequestGameplayTag(FName("State.Exhausted"));
-        AbilitySystemComponent->RemoveLooseGameplayTag(ExhaustedTag);
-
-        // 스태미나 회복 GE 적용
-        if (StaminaRegenEffectClass)
-        {
-            AbilitySystemComponent->RemoveActiveGameplayEffectBySourceEffect(StaminaRegenEffectClass, AbilitySystemComponent);
-
-            FGameplayEffectContextHandle EffectContext = AbilitySystemComponent->MakeEffectContext();
-            EffectContext.AddSourceObject(this);
-            FGameplayEffectSpecHandle SpecHandle = AbilitySystemComponent->MakeOutgoingSpec(StaminaRegenEffectClass, 1.0f, EffectContext);
-
-            if (SpecHandle.IsValid())
-            {
-                AbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
-            }
-        }
+        GetWorldTimerManager().SetTimer(TimerHandle_StaminaRegenTick, this, &AFPSCharacter::RegenStamina, 0.1f, true);
     }
+}
+
+void AFPSCharacter::RegenStamina()
+{
+    if (CurrentStamina >= MaxStamina)
+    {
+        GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegenTick);
+        return;
+    }
+
+    CurrentStamina = FMath::Min(CurrentStamina + 2.0f, MaxStamina); // 초당 20
+
+    // UI 업데이트
+    OnStaminaChanged.Broadcast(CurrentStamina, MaxStamina);
 }
 
 void AFPSCharacter::Die()
@@ -519,6 +498,38 @@ void AFPSCharacter::Die()
 }
 
 // 수류탄 던지기
+void AFPSCharacter::InitInputAndCamera()
+{
+    APlayerController* PlayerController = Cast<APlayerController>(GetController());
+    if (!PlayerController) return;
+
+    // 입력 모드
+    PlayerController->bShowMouseCursor = false;
+    PlayerController->SetInputMode(FInputModeGameOnly());
+
+    // HUD 위젯
+    if (MainHUDWidgetClass && !MainHUDWidget)
+    {
+        MainHUDWidget = CreateWidget<UUserWidget>(GetWorld(), MainHUDWidgetClass);
+        if (MainHUDWidget)
+            MainHUDWidget->AddToViewport();
+    }
+}
+
+void AFPSCharacter::PossessedBy(AController* NewController)
+{
+    Super::PossessedBy(NewController);
+    UE_LOG(LogTemp, Warning, TEXT("PossessedBy called - %s"), *GetName());
+    InitInputAndCamera();
+}
+
+void AFPSCharacter::OnRep_Controller()
+{
+    Super::OnRep_Controller();
+    UE_LOG(LogTemp, Warning, TEXT("OnRep_Controller called - %s"), *GetName());
+    InitInputAndCamera();
+}
+
 void AFPSCharacter::OnGrenadeStart()
 {
     if (bIsReloading) return;
@@ -540,19 +551,66 @@ void AFPSCharacter::OnGrenadeCompleted()
     bIsThrowingGrenade = false;
 }
 
+void AFPSCharacter::SwitchToWeapon(int32 Index)
+{
+    if (!Weapons.IsValidIndex(Index) || Index == CurrentWeaponIndex) return;
+    if (bIsReloading || bIsThrowingGrenade) return;
+
+    // 현재 무기 탄약 저장
+    WeaponAmmo[CurrentWeaponIndex] = CurrentAmmo;
+
+    CurrentWeaponIndex = Index;
+    const FWeaponData& WData = Weapons[CurrentWeaponIndex];
+
+    // 무기 메시 교체 및 트랜스폼 보정
+    if (WeaponMesh && WData.WeaponMesh)
+    {
+        WeaponMesh->SetSkeletalMesh(WData.WeaponMesh);
+        WeaponMesh->SetRelativeLocation(WData.GripLocationOffset);
+        WeaponMesh->SetRelativeRotation(WData.GripRotationOffset);
+    }
+
+    // 전투 데이터 교체
+    ProjectileClass  = WData.ProjectileClass;
+    FireMontage      = WData.FireMontage;
+    ReloadMontage    = WData.ReloadMontage;
+    MuzzleFlashFX    = WData.MuzzleFlashFX;
+    FireSound        = WData.FireSound;
+    FireRate         = WData.FireRate;
+    RecoilPitch      = WData.RecoilPitch;
+    RecoilYaw        = WData.RecoilYaw;
+    MaxAmmoInMag     = WData.MaxAmmoInMag;
+
+    // 해당 무기의 저장된 탄약 복원
+    CurrentAmmo = WeaponAmmo[CurrentWeaponIndex];
+    OnAmmoChanged.Broadcast(CurrentAmmo, CurrentMagCount, MaxMagCount);
+    OnWeaponChanged.Broadcast(CurrentWeaponIndex);
+}
+
+void AFPSCharacter::OnWeapon1()
+{
+    SwitchToWeapon(0);
+}
+
+void AFPSCharacter::OnWeapon2()
+{
+    SwitchToWeapon(1);
+}
+
 void AFPSCharacter::OnFireStarted()
 {
     if (bIsDead || bIsReloading) return;
 
     bFireButtonDown = true;
 
-    if (!bIsAiming) return;
-
+    // 스트라타젬 준비 완료 → 비콘 던지기 (조준 여부 무관)
     if (bIsStratagemReady)
     {
         ThrowBeacon();
         return;
     }
+
+    if (!bIsAiming) return;
 
     StartFiring();
 }
@@ -584,12 +642,12 @@ void AFPSCharacter::StopFiring()
 }
 
 void AFPSCharacter::Reload()
-{        
-    if (bIsReloading || GetWorldTimerManager().IsTimerActive(TimerHandle_Reload)) return;   
-
-    if (bIsDead) return;
+{
+    if (bIsReloading || GetWorldTimerManager().IsTimerActive(TimerHandle_Reload) || bIsDead) return;
 
     if (CurrentAmmo >= MaxAmmoInMag || bIsReloading || bIsThrowingGrenade) return;
+    
+    StopFiring(); // 사격중이었다면 사격 중지
 
     if (bSprintButtonDown)
     {
@@ -685,47 +743,36 @@ void AFPSCharacter::OnAimCompleted_Implementation()
 
 void AFPSCharacter::FireWeapon()
 {
-    // 탄약이 없으면 발사 중지
     if (CurrentAmmo <= 0)
     {
         StopFiring();
         return;
     }
 
-    // ThirdPersonCamera를 기반으로 라인트레이스 시작
     if (!ThirdPersonCamera) return;
 
-    FVector Start = ThirdPersonCamera->GetComponentLocation();
-    FVector ForwardVector = ThirdPersonCamera->GetForwardVector();
-    FVector End = Start + (ForwardVector * FireRange);
-
-    FHitResult HitResult;
-    FCollisionQueryParams Params;
-    Params.AddIgnoredActor(this); // 자신은 무시 처리
-
-    bool bHit = GetWorld()->LineTraceSingleByChannel(
-        HitResult,
-        Start,
-        End,
-        ECollisionChannel::ECC_Visibility,
-        Params
-    );
-
-    if (APlayerController* PC = Cast<APlayerController>(GetController()))
+    // 반동은 로컬에서 즉시 처리
+    if (IsLocallyControlled())
     {
-        // 위로 튀는 반동 (Pitch가 음수면 화면이 위로 올라감)
         AddControllerPitchInput(-RecoilPitch);
-
-        // 좌우로 랜덤하게 흔들리는 반동
         float RandomYaw = FMath::FRandRange(-RecoilYaw, RecoilYaw);
         AddControllerYawInput(RandomYaw);
+
+        // 카메라 쉐이크도 로컬만
+        if (APlayerController* PC = Cast<APlayerController>(GetController()))
+        {
+            if (FireCameraShakeClass)
+                PC->ClientStartCameraShake(FireCameraShakeClass);
+        }
     }
 
-    FVector MuzzleLocation = WeaponMesh->GetSocketLocation(TEXT("MuzzleSocket"));
-    FRotator MuzzleRotation = WeaponMesh->GetSocketRotation(TEXT("MuzzleSocket"));
+    // 탄약 차감 및 UI는 로컬에서 즉시
+    CurrentAmmo--;
+    OnAmmoChanged.Broadcast(CurrentAmmo, CurrentMagCount, MaxMagCount);
 
-    // 화면 정중앙(조준점)이 가리키는 월드 좌표를 찾기 위해 라인 트레이스 사용
-    FVector LookAtLocation;
+    // 발사 위치/방향 계산
+    FVector MuzzleLocation = WeaponMesh->GetSocketLocation(TEXT("MuzzleSocket"));
+
     FVector CameraLocation = ThirdPersonCamera->GetComponentLocation();
     FVector CameraForward = ThirdPersonCamera->GetForwardVector();
     FVector TraceEnd = CameraLocation + (CameraForward * FireRange);
@@ -734,28 +781,42 @@ void AFPSCharacter::FireWeapon()
     FCollisionQueryParams QueryParams;
     QueryParams.AddIgnoredActor(this);
 
-    // 카메라 방향으로 물체가 있는지 확인
+    FVector LookAtLocation;
     if (GetWorld()->LineTraceSingleByChannel(AimHitResult, CameraLocation, TraceEnd, ECC_Visibility, QueryParams))
-    {
-        LookAtLocation = AimHitResult.ImpactPoint; // 부딪힌 점
-    }
+        LookAtLocation = AimHitResult.ImpactPoint;
     else
-    {
-        LookAtLocation = TraceEnd; // 없으면 최대 사정거리 끝 점
-    }
+        LookAtLocation = TraceEnd;
 
-    // 총구에서 '조준점이 가리키는 위치'를 바라보는 회전값 계산
     FRotator TargetRotation = (LookAtLocation - MuzzleLocation).Rotation();
 
-    // 총구 화염 생성
+    // 이펙트/사운드/애니메이션은 Multicast로 모든 클라에
+    Multicast_FireEffects(MuzzleLocation, TargetRotation);
+
+    // 투사체 스폰은 서버에 요청
+    Server_FireWeapon(MuzzleLocation, TargetRotation);
+}
+
+void AFPSCharacter::Server_FireWeapon_Implementation(FVector MuzzleLocation, FRotator TargetRotation)
+{
+    if (!ProjectileClass) return;
+
+    FActorSpawnParameters ActorSpawnParams;
+    ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
+    ActorSpawnParams.Owner = this;
+    ActorSpawnParams.Instigator = this;
+
+    GetWorld()->SpawnActor<ADediProjectile>(ProjectileClass, MuzzleLocation, TargetRotation, ActorSpawnParams);
+
+    // 소음은 서버에서 처리
+    UAISense_Hearing::ReportNoiseEvent(GetWorld(), GetActorLocation(), 1.0f, this, 0.0f, FName(TEXT("Noise")));
+}
+
+void AFPSCharacter::Multicast_FireEffects_Implementation(FVector MuzzleLocation, FRotator TargetRotation)
+{
+    // 총구 화염
     if (MuzzleFlashFX)
     {
-        UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-            GetWorld(),
-            MuzzleFlashFX,
-            MuzzleLocation,
-            TargetRotation
-        );
+        UNiagaraFunctionLibrary::SpawnSystemAtLocation(GetWorld(), MuzzleFlashFX, MuzzleLocation, TargetRotation);
     }
 
     // 발사 사운드
@@ -764,42 +825,78 @@ void AFPSCharacter::FireWeapon()
         UGameplayStatics::PlaySoundAtLocation(this, FireSound, GetActorLocation());
     }
 
-    APlayerController* PC = Cast<APlayerController>(GetController());
-    if (PC && FireCameraShakeClass)
+    // 발사 애니메이션
+    if (FireMontage)
     {
-        // 카메라 셰이크
-        PC->ClientStartCameraShake(FireCameraShakeClass);
+        if (UAnimInstance* AnimInstance = GetMesh()->GetAnimInstance())
+        {
+            float FireInterval = 1.0f / FireRate;
+            float MontageLength = FireMontage->GetPlayLength();
+            AnimInstance->Montage_Play(FireMontage, MontageLength / FireInterval);
+        }
     }
-
-    // 소음
-    UAISense_Hearing::ReportNoiseEvent(
-        GetWorld(),
-        GetActorLocation(),
-        1.0f,
-        this,
-        0.0f,
-        FName(TEXT("Noise"))
-    );
-
-    // 투사체 생성
-    if (ProjectileClass)
-    {
-        FActorSpawnParameters ActorSpawnParams;
-        ActorSpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AdjustIfPossibleButAlwaysSpawn;
-        ActorSpawnParams.Owner = this;
-        ActorSpawnParams.Instigator = this;
-
-        GetWorld()->SpawnActor<ADediProjectile>(ProjectileClass, MuzzleLocation, TargetRotation, ActorSpawnParams);
-    }
-
-    CurrentAmmo--;
-
-    OnAmmoChanged.Broadcast(CurrentAmmo, CurrentMagCount, MaxMagCount);
 }
 
 void AFPSCharacter::ThrowBeacon()
 {
-    // 스트라타젬 비콘 던지기 구현은 나중에
+    if (!BeaconClass || !StratagemList.IsValidIndex(ActiveStratagemIndex)) return;
+
+    FStratagemData& ActiveData = StratagemList[ActiveStratagemIndex];
+
+    // 쿨타임 처리 (로컬 상태)
+    if (ActiveData.bUseStack)
+    {
+        if (ActiveData.CurrentStack > 0)
+        {
+            ActiveData.CurrentStack--;
+            if (ActiveData.CurrentStack <= 0)
+            {
+                ActiveData.bIsOnCooldown = true;
+                ActiveData.bIsRearming = true;
+                ActiveData.CurrentCooldown = ActiveData.MaxCooldown;
+            }
+        }
+    }
+    else
+    {
+        ActiveData.bIsOnCooldown = true;
+        ActiveData.CurrentCooldown = ActiveData.MaxCooldown;
+    }
+
+    FVector SpawnLocation = WeaponMesh->GetSocketLocation(TEXT("MuzzleSocket"));
+    FRotator ControlRot = GetControlRotation();
+    FRotator SpawnRotation = ControlRot;
+
+    // 비콘 스폰은 서버에 요청
+    Server_ThrowBeacon(BeaconClass, SpawnLocation, SpawnRotation, ActiveData.Type, ActiveData.BeaconColor);
+
+    // 상태 초기화는 로컬에서
+    CurrentInputStack.Empty();
+    bIsStratagemReady = false;
+    bIsSelectingStratagem = false;
+    OnStratagemStackUpdated.Broadcast(CurrentInputStack);
+}
+
+void AFPSCharacter::Server_ThrowBeacon_Implementation(TSubclassOf<AStratagemBeacon> InBeaconClass, FVector SpawnLocation, FRotator SpawnRotation, EStratagemType StratagemType, FLinearColor BeaconColor)
+{
+    FActorSpawnParameters SpawnParams;
+    SpawnParams.Owner = this;
+    SpawnParams.Instigator = GetInstigator();
+
+    AStratagemBeacon* SpawnedBeacon = GetWorld()->SpawnActor<AStratagemBeacon>(
+        InBeaconClass, SpawnLocation, SpawnRotation, SpawnParams
+    );
+
+    if (SpawnedBeacon)
+    {
+        SpawnedBeacon->MyStratagemType = StratagemType;
+        SpawnedBeacon->UpdateBeaconVisual(BeaconColor);
+
+        if (UProjectileMovementComponent* ProjComp = SpawnedBeacon->FindComponentByClass<UProjectileMovementComponent>())
+        {
+            ProjComp->Velocity = SpawnRotation.Vector() * ThrowForce;
+        }
+    }
 }
 
 void AFPSCharacter::OnStratagemMenuAction(const FInputActionValue& Value)

@@ -13,6 +13,49 @@ class AHDProjectile;
 class UNiagaraSystem;
 class UGameplayEffect;
 
+// 무기 데이터 구조체
+USTRUCT(BlueprintType)
+struct FWeaponData
+{
+    GENERATED_BODY()
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    USkeletalMesh* WeaponMesh = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    TSubclassOf<class ADediProjectile> ProjectileClass;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    class UAnimMontage* FireMontage = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    class UAnimMontage* ReloadMontage = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    class UNiagaraSystem* MuzzleFlashFX = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    class USoundBase* FireSound = nullptr;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float FireRate = 10.f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float RecoilPitch = 0.1f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    float RecoilYaw = 0.03f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite)
+    int32 MaxAmmoInMag = 30;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grip Correction")
+    FVector GripLocationOffset = FVector::ZeroVector;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Grip Correction")
+    FRotator GripRotationOffset = FRotator::ZeroRotator;
+};
+
 // 스트라타젬 입력 화살표 방향
 UENUM(BlueprintType)
 enum class EStratagemDirection : uint8
@@ -104,6 +147,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnStratagemUpdate, int32, Stratage
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnStratagemStackUpdated, const TArray<EStratagemDirection>&, InputStack);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnAttributeChanged, float, CurrentValue, float, MaxValue);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnGrenadeChanged, int32, Current, int32, Max);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnWeaponChanged, int32, NewWeaponIndex);
 
 UCLASS(Blueprintable)
 class DEDITEST_API AFPSCharacter : public ACharacter, public IAbilitySystemInterface, public IGenericTeamAgentInterface
@@ -135,6 +179,8 @@ public:
 protected:
     virtual void BeginPlay() override;
     virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+    virtual void PossessedBy(AController* NewController) override;
+    virtual void OnRep_Controller() override;
 
     // 플레이어 AttributeSet
     UPROPERTY()
@@ -163,8 +209,12 @@ protected:
     TSubclassOf<UGameplayEffect> StaminaRegenEffectClass;
 
     void StartStaminaRegen();
+    void DrainStamina();
+    void RegenStamina();
 
     FTimerHandle TimerHandle_StaminaRegen;
+    FTimerHandle TimerHandle_StaminaDrain;
+    FTimerHandle TimerHandle_StaminaRegenTick;
 
 public:
     void OnSprintStarted();
@@ -187,6 +237,10 @@ protected:
     void StopFiring();
     void Reload();
     void OnGrenadeStart();
+    void OnWeapon1();
+    void OnWeapon2();
+
+    void InitInputAndCamera();
 
     UFUNCTION(BlueprintCallable)
     void OnGrenadeCompleted();
@@ -217,6 +271,13 @@ protected:
     bool bSprintButtonDown = false;  // 토글 상태
     bool bIsSprintActive = false;     // 실제 스프린트 어빌리티 활성 상태
 
+    // 스태미나 시스템
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stamina")
+    float CurrentStamina = 100.0f;
+
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Stamina")
+    float MaxStamina = 100.0f;
+
 
 
     // 에임
@@ -238,6 +299,14 @@ protected:
 
     UFUNCTION(BlueprintCallable, Category = "Combat")
     void FireWeapon();
+
+    // 서버에 발사 요청
+    UFUNCTION(Server, Reliable)
+    void Server_FireWeapon(FVector MuzzleLocation, FRotator TargetRotation);
+
+    // 모든 클라이언트에 이펙트 재생
+    UFUNCTION(NetMulticast, Unreliable)
+    void Multicast_FireEffects(FVector MuzzleLocation, FRotator TargetRotation);
 
     FTimerHandle TimerHandle_AutomaticFire;
 
@@ -300,11 +369,17 @@ protected:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
     class UAnimMontage* ReloadMontage;
 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
+    class UAnimMontage* FireMontage;
+
     // ----------------스트라타젬---------------------
     UPROPERTY(EditAnywhere, Category = "Stratagem")
     TSubclassOf<class AStratagemBeacon> BeaconClass;
 
-    void ThrowBeacon(); // 기존 ThrowBeacon에서 이름 변경 권장
+    void ThrowBeacon();
+
+    UFUNCTION(Server, Reliable)
+    void Server_ThrowBeacon(TSubclassOf<AStratagemBeacon> InBeaconClass, FVector SpawnLocation, FRotator SpawnRotation, EStratagemType StratagemType, FLinearColor BeaconColor);
 
     UPROPERTY(EditAnywhere, Category = "Stratagem")
     float ThrowForce = 3000.0f;
@@ -378,6 +453,12 @@ public:
     class UInputAction* GrenadeAction;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    class UInputAction* Weapon1Action;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
+    class UInputAction* Weapon2Action;
+
+    UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
     class UInputAction* FireAction;
 
     UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Input")
@@ -408,6 +489,9 @@ public:
     UPROPERTY(BlueprintAssignable, Category = "Events")
     FOnGrenadeChanged OnGrenadeChanged;
 
+    UPROPERTY(BlueprintAssignable, Category = "Weapon")
+    FOnWeaponChanged OnWeaponChanged;
+
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Input")
     float MouseSensitivity = 0.3f;
 
@@ -421,6 +505,20 @@ protected:
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
     class USkeletalMesh* DefaultWeaponMesh;
+
+    // 무기 2개 데이터
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Weapon")
+    TArray<FWeaponData> Weapons;
+
+    // ABP에서 읽을 수 있도록 BlueprintReadOnly
+    UPROPERTY(BlueprintReadOnly, Category = "Weapon")
+    int32 CurrentWeaponIndex = 0;
+
+    UFUNCTION(BlueprintCallable, Category = "Weapon")
+    void SwitchToWeapon(int32 Index);
+
+    // 무기별 탄약 저장 (교체해도 각자 유지)
+    int32 WeaponAmmo[2] = { 30, 30 };
 
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Combat")
     float FireRange = 300000.0f;
