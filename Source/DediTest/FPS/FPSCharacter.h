@@ -220,6 +220,12 @@ public:
     void OnSprintStarted();
     void OnSprintCompleted();
 
+    UFUNCTION(Server, Reliable)
+    void Server_StartSprint();
+
+    UFUNCTION(Server, Reliable)
+    void Server_StopSprint();
+
     void Die();
 
     bool bIsDead = false;

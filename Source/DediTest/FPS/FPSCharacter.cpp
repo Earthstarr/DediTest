@@ -407,26 +407,38 @@ void AFPSCharacter::OnSprintStarted()
     // 조준 중이거나 사격 중이면 입력만 저장하고 리턴
     if (bIsAiming || bFireButtonDown) return;
 
-    // 스태미나가 0보다 크다면 달리기 시작
+    // 스태미나가 0보다 크다면 서버에 달리기 요청
     if (CurrentStamina > 0.0f)
     {
-        bIsSprintActive = true;
-
-        // 회복 타이머 중단
-        GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegen);
-        GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegenTick);
-
-        // 속도 변경
-        GetCharacterMovement()->MaxWalkSpeed = SprintWalkSpeed;
-
-        // 스태미나 감소 타이머 시작 (0.1초마다)
-        GetWorldTimerManager().SetTimer(TimerHandle_StaminaDrain, this, &AFPSCharacter::DrainStamina, 0.1f, true);
+        Server_StartSprint();
     }
 }
 
 void AFPSCharacter::OnSprintCompleted()
 {
     bSprintButtonDown = false;
+    Server_StopSprint();
+}
+
+void AFPSCharacter::Server_StartSprint_Implementation()
+{
+    if (bIsSprintActive || CurrentStamina <= 0.0f) return;
+
+    bIsSprintActive = true;
+
+    // 회복 타이머 중단
+    GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegen);
+    GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegenTick);
+
+    // 속도 변경 (서버에서 변경하면 자동으로 리플리케이트됨)
+    GetCharacterMovement()->MaxWalkSpeed = SprintWalkSpeed;
+
+    // 스태미나 감소 타이머 시작 (0.1초마다, 서버에서만)
+    GetWorldTimerManager().SetTimer(TimerHandle_StaminaDrain, this, &AFPSCharacter::DrainStamina, 0.1f, true);
+}
+
+void AFPSCharacter::Server_StopSprint_Implementation()
+{
     bIsSprintActive = false;
 
     // 스태미나 감소 타이머 중단
@@ -444,6 +456,9 @@ void AFPSCharacter::OnSprintCompleted()
 
 void AFPSCharacter::DrainStamina()
 {
+    // 서버에서만 실행
+    if (!HasAuthority()) return;
+
     CurrentStamina = FMath::Max(CurrentStamina - 1.0f, 0.0f); // 초당 10
 
     // UI 업데이트
@@ -452,12 +467,15 @@ void AFPSCharacter::DrainStamina()
     // 스태미나가 0이면 달리기 중지
     if (CurrentStamina <= 0.0f)
     {
-        OnSprintCompleted();
+        Server_StopSprint();
     }
 }
 
 void AFPSCharacter::StartStaminaRegen()
 {
+    // 서버에서만 실행
+    if (!HasAuthority()) return;
+
     // 달리는 중이 아닐 때만 회복
     if (!bIsSprintActive)
     {
@@ -467,6 +485,9 @@ void AFPSCharacter::StartStaminaRegen()
 
 void AFPSCharacter::RegenStamina()
 {
+    // 서버에서만 실행
+    if (!HasAuthority()) return;
+
     if (CurrentStamina >= MaxStamina)
     {
         GetWorldTimerManager().ClearTimer(TimerHandle_StaminaRegenTick);
@@ -532,6 +553,7 @@ void AFPSCharacter::OnRep_Controller()
 
 void AFPSCharacter::OnGrenadeStart()
 {
+    if (!IsLocallyControlled()) return;
     if (bIsReloading) return;
 
     // 수류탄이 0보다 많으면 던지기 시작
