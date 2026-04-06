@@ -59,6 +59,10 @@ public:
 	virtual void OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UPrimitiveComponent* OtherComp,
 	                   FVector NormalImpulse, const FHitResult& Hit);
 
+	// 이펙트/사운드 재생 (Multicast)
+	UFUNCTION(NetMulticast, Reliable)
+	void Multicast_PlayHitEffects(FVector ImpactPoint, FRotator ImpactRotation);
+
 	// Getter
 	USphereComponent* GetCollisionComp() const { return CollisionComp; }
 	UProjectileMovementComponent* GetProjectileMovement() const { return ProjectileMovement; }

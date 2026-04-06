@@ -272,7 +272,7 @@ void AFPSCharacter::Tick(float DeltaTime)
     bCameraTooClose = CameraDist < 250.f;
 
     RetargetMesh->SetVisibility(!bCameraTooClose);
-    WeaponMesh->SetVisibility(!bCameraTooClose);
+    WeaponMesh->SetVisibility(!bCameraTooClose, true); // true = 자식 컴포넌트도 함께
 
     // 스트라타젬 쿨타임 업데이트
     for (FStratagemData& Data : StratagemList)

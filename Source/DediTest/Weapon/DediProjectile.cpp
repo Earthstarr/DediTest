@@ -131,24 +131,30 @@ void ADediProjectile::OnHit(UPrimitiveComponent* HitComp, AActor* OtherActor, UP
 		}
 	}
 
-	// 이펙트 생성 (모든 클라이언트에서 보이도록)
+	// 이펙트/사운드는 Multicast로 모든 클라이언트에 전파
+	FRotator ImpactRotation = Hit.ImpactNormal.Rotation();
+	Multicast_PlayHitEffects(Hit.ImpactPoint, ImpactRotation);
+
+	// 투사체 제거
+	Destroy();
+}
+
+void ADediProjectile::Multicast_PlayHitEffects_Implementation(FVector ImpactPoint, FRotator ImpactRotation)
+{
+	// 이펙트 생성
 	if (ImpactEffect)
 	{
-		FRotator SpawnRotation = Hit.ImpactNormal.Rotation();
 		UNiagaraFunctionLibrary::SpawnSystemAtLocation(
 			GetWorld(),
 			ImpactEffect,
-			Hit.ImpactPoint,
-			SpawnRotation
+			ImpactPoint,
+			ImpactRotation
 		);
 	}
 
 	// 사운드 재생
 	if (ImpactSound)
 	{
-		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, Hit.ImpactPoint, 1.f, 1.f, 0.f, HitAttenuation);
+		UGameplayStatics::PlaySoundAtLocation(this, ImpactSound, ImpactPoint, 1.f, 1.f, 0.f, HitAttenuation);
 	}
-
-	// 투사체 제거
-	Destroy();
 }
