@@ -20,6 +20,7 @@
 #include "DediTest/Weapon/DediProjectile.h"
 #include "StratagemBeacon.h"
 #include "Net/UnrealNetwork.h"
+#include "DediTest/GameMode/TeamDeathMatchGameMode.h"
 
 AFPSCharacter::AFPSCharacter()
 {
@@ -93,6 +94,9 @@ float AFPSCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& D
 
     if (AttributeSet && ActualDamage > 0.0f)
     {
+        // 마지막 데미지를 준 캐릭터 저장 (킬러 추적)
+        LastDamageCauser = EventInstigator;
+
         float NewHealth = AttributeSet->GetHealth() - ActualDamage;
         AttributeSet->SetHealth(FMath::Max(NewHealth, 0.0f));
     }
@@ -525,11 +529,23 @@ void AFPSCharacter::Die()
     GetCharacterMovement()->DisableMovement();
     GetCharacterMovement()->SetComponentTickEnabled(false);
 
+    // GameMode에 킬 알림 (서버에서만)
+    if (HasAuthority())
+    {
+        ATeamDeathMatchGameMode* GM = GetWorld()->GetAuthGameMode<ATeamDeathMatchGameMode>();
+        if (GM)
+        {
+            AController* Killer = LastDamageCauser;
+            AController* Victim = GetController();
+            GM->OnPlayerKilled(Killer, Victim);
+        }
+    }
+
     // 래그돌 활성화
     /*GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
     GetMesh()->SetSimulatePhysics(true);
     GetMesh()->SetCollisionProfileName(TEXT("Ragdoll"));*/
-    
+
     Destroy();
 }
 

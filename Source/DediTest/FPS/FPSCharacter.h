@@ -233,6 +233,10 @@ public:
 
     bool bIsDead = false;
 
+    // 마지막 데미지를 준 캐릭터 (킬러 추적용)
+    UPROPERTY()
+    AController* LastDamageCauser = nullptr;
+
 protected:
 
     /* 입력 처리 함수들 */

@@ -6,7 +6,8 @@
       "Bash(\"C:\\\\Program Files\\\\Epic Games\\\\UE_5.7\\\\Engine\\\\Build\\\\BatchFiles\\\\Build.bat\" DediTestEditor Win64 Development -Project=\"C:\\\\JW\\\\Unreal\\\\Lecture\\\\DediTest\\\\DediTest.uproject\" -WaitMutex)",
       "Bash(dir:*)",
       "Bash(findstr:*)",
-      "Bash(dir \"C:\\\\JW\\\\Unreal\\\\Lecture\\\\UnrealEngine-release\")"
+      "Bash(dir \"C:\\\\JW\\\\Unreal\\\\Lecture\\\\UnrealEngine-release\")",
+      "Bash(git checkout:*)"
     ]
   }
 }
