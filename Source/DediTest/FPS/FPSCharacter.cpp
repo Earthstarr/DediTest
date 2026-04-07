@@ -19,6 +19,7 @@
 #include "Perception/AISense_Hearing.h"
 #include "DediTest/Weapon/DediProjectile.h"
 #include "StratagemBeacon.h"
+#include "Net/UnrealNetwork.h"
 
 AFPSCharacter::AFPSCharacter()
 {
@@ -97,6 +98,14 @@ float AFPSCharacter::TakeDamage(float DamageAmount, struct FDamageEvent const& D
     }
 
     return ActualDamage;
+}
+
+void AFPSCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
+{
+    Super::GetLifetimeReplicatedProps(OutLifetimeProps);
+
+    DOREPLIFETIME(AFPSCharacter, bIsAiming);
+    DOREPLIFETIME(AFPSCharacter, AimPitch);
 }
 
 void AFPSCharacter::BeginPlay()
@@ -251,6 +260,9 @@ void AFPSCharacter::BeginPlay()
 
 void AFPSCharacter::UpdateAimOffset(float DeltaTime)
 {
+    // Controller가 있는 경우만 (로컬 플레이어 또는 서버의 AI)
+    if (!Controller) return;
+
     // 컨트롤러의 회전값과 캐릭터의 회전값 비교
     FRotator ControlRotation = GetControlRotation();
     FRotator ActorRotation = GetActorRotation();
@@ -267,12 +279,15 @@ void AFPSCharacter::Tick(float DeltaTime)
     Super::Tick(DeltaTime);
     UpdateAimOffset(DeltaTime);
 
-    // 카메라가 벽에 의해 캐릭터 가까이 당겨지면 메시 숨김
-    float CameraDist = FVector::Dist(ThirdPersonCamera->GetComponentLocation(), GetActorLocation());
-    bCameraTooClose = CameraDist < 250.f;
+    // 로컬 플레이어만: 카메라가 벽에 의해 캐릭터 가까이 당겨지면 메시 숨김
+    if (IsLocallyControlled())
+    {
+        float CameraDist = FVector::Dist(ThirdPersonCamera->GetComponentLocation(), GetActorLocation());
+        bCameraTooClose = CameraDist < 250.f;
 
-    RetargetMesh->SetVisibility(!bCameraTooClose);
-    WeaponMesh->SetVisibility(!bCameraTooClose, true); // true = 자식 컴포넌트도 함께
+        RetargetMesh->SetVisibility(!bCameraTooClose);
+        WeaponMesh->SetVisibility(!bCameraTooClose, true); // true = 자식 컴포넌트도 함께
+    }
 
     // 스트라타젬 쿨타임 업데이트
     for (FStratagemData& Data : StratagemList)
@@ -749,17 +764,53 @@ void AFPSCharacter::OnAimStarted_Implementation()
     if (bIsDead) return;
 
     bAimButtonDown = true;
-    bIsAiming = true;
+
+    // 로컬에서 즉시 회전 모드 변경 (반응성)
+    bUseControllerRotationYaw = true;
+    GetCharacterMovement()->bOrientRotationToMovement = false;
+
+    Server_SetAiming(true);
 }
 
 void AFPSCharacter::OnAimCompleted_Implementation()
 {
     bAimButtonDown = false;
-    bIsAiming = false;
+
+    // 로컬에서 즉시 회전 모드 복원
+    GetWorldTimerManager().SetTimer(TimerHandle_RotationReset, this, &AFPSCharacter::ResetRotationMode, AimRotationRecoveryTime, false);
+
+    Server_SetAiming(false);
 
     if (bSprintButtonDown)
     {
         OnSprintStarted();
+    }
+}
+
+void AFPSCharacter::Server_SetAiming_Implementation(bool bNewAiming)
+{
+    bIsAiming = bNewAiming;
+
+    // 에임 시작
+    if (bIsAiming)
+    {
+        bUseControllerRotationYaw = true;
+        GetCharacterMovement()->bOrientRotationToMovement = false;
+        GetCharacterMovement()->MaxWalkSpeed = AimWalkSpeed;
+
+        // 달리기 중이었다면 중지
+        if (bIsSprintActive)
+        {
+            Server_StopSprint();
+        }
+    }
+    // 에임 종료
+    else
+    {
+        GetCharacterMovement()->MaxWalkSpeed = NormalWalkSpeed;
+
+        // 회전 방식 복원 타이머
+        GetWorldTimerManager().SetTimer(TimerHandle_RotationReset, this, &AFPSCharacter::ResetRotationMode, AimRotationRecoveryTime, false);
     }
 }
 
@@ -811,10 +862,7 @@ void AFPSCharacter::FireWeapon()
 
     FRotator TargetRotation = (LookAtLocation - MuzzleLocation).Rotation();
 
-    // 이펙트/사운드/애니메이션은 Multicast로 모든 클라에
-    Multicast_FireEffects(MuzzleLocation, TargetRotation);
-
-    // 투사체 스폰은 서버에 요청
+    // 투사체 스폰과 이펙트는 서버에 요청
     Server_FireWeapon(MuzzleLocation, TargetRotation);
 }
 
@@ -831,6 +879,9 @@ void AFPSCharacter::Server_FireWeapon_Implementation(FVector MuzzleLocation, FRo
 
     // 소음은 서버에서 처리
     UAISense_Hearing::ReportNoiseEvent(GetWorld(), GetActorLocation(), 1.0f, this, 0.0f, FName(TEXT("Noise")));
+
+    // 이펙트/사운드/애니메이션은 서버에서 Multicast로 모든 클라이언트에 전파
+    Multicast_FireEffects(MuzzleLocation, TargetRotation);
 }
 
 void AFPSCharacter::Multicast_FireEffects_Implementation(FVector MuzzleLocation, FRotator TargetRotation)

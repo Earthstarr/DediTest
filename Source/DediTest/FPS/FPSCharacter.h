@@ -162,6 +162,9 @@ class DEDITEST_API AFPSCharacter : public ACharacter, public IAbilitySystemInter
 public:
     AFPSCharacter();
 
+    // 리플리케이션
+    virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
+
     // GAS
     virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
@@ -295,7 +298,10 @@ protected:
     void OnAimCompleted();
     virtual void OnAimCompleted_Implementation();
 
-    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat")
+    UFUNCTION(Server, Reliable)
+    void Server_SetAiming(bool bNewAiming);
+
+    UPROPERTY(VisibleAnywhere, BlueprintReadWrite, Category = "Combat", Replicated)
     bool bIsAiming = false;
 
     FTimerHandle TimerHandle_RotationReset;
@@ -358,7 +364,7 @@ public:
 protected:
 
     // 애니메이션
-    UPROPERTY(BlueprintReadOnly, Category = "Animation")
+    UPROPERTY(BlueprintReadOnly, Category = "Animation", Replicated)
     float AimPitch;
 
     void UpdateAimOffset(float DeltaTime);
